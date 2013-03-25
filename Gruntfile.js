@@ -89,11 +89,15 @@ module.exports = function(grunt) {
   projectPath       = grunt.option('path');
 
   var defaultTasks = [];
+  var watchTasks = [];
 
 
 
   // Do we have a projectPath defined
   if(typeof projectPath !== 'undefined'){
+
+    // Clean up project path, just in case it's missing a trailing slash
+    projectPath = path.resolve(projectPath) + path.sep;
 
     if(!patsy.utils.doesPathExist(projectPath + 'patsy.json')){
 
@@ -109,13 +113,57 @@ module.exports = function(grunt) {
       // we've to load the file into another variable
       config = patsy.config.load(projectPath);
 
+
+
       // A crude way to do this, but bare with us, this will improve
       if(config.build.test.suites.jasmine){
-        testTasks.push('jasmine');
+
         grunt.loadNpmTasks('grunt-contrib-jasmine');
 
+        if(config.build.test.suites.jasmine[config.project.details.name]){
 
-        config.build.test.suites.jasmine.src = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine.src);
+          testTasks.push('jasmine');
+
+          config.build.test.suites.jasmine[config.project.details.name].src = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine[config.project.details.name].src);
+
+          if(typeof config.build.test.suites.jasmine[config.project.details.name].options !== 'undefined'){
+
+            if(typeof config.build.test.suites.jasmine[config.project.details.name].options.template !== 'undefined'){
+              config.build.test.suites.jasmine[config.project.details.name].options.template = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine[config.project.details.name].options.template);
+            }
+
+            if(typeof config.build.test.suites.jasmine[config.project.details.name].options.outfile !== 'undefined'){
+              config.build.test.suites.jasmine[config.project.details.name].options.outfile = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine[config.project.details.name].options.outfile);
+            }
+
+            if(typeof config.build.test.suites.jasmine[config.project.details.name].options.specs !== 'undefined'){
+              config.build.test.suites.jasmine[config.project.details.name].options.specs = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine[config.project.details.name].options.specs);
+            }
+
+          }
+
+        } else {
+
+          testTasks.push('jasmine');
+
+          config.build.test.suites.jasmine.src = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine.src);
+
+          if(typeof config.build.test.suites.jasmine.options !== 'undefined'){
+
+            if(typeof config.build.test.suites.jasmine.options.template !== 'undefined'){
+              config.build.test.suites.jasmine.options.template = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine.options.template);
+            }
+
+            if(typeof config.build.test.suites.jasmine.options.outfile !== 'undefined'){
+              config.build.test.suites.jasmine.options.outfile = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine.options.outfile);
+            }
+
+            if(typeof config.build.test.suites.jasmine.options.specs !== 'undefined'){
+              config.build.test.suites.jasmine.options.specs = patsy.updateRelativePaths(config.project.environment.rel_path, config.build.test.suites.jasmine.options.specs);
+            }
+
+          }
+        }
       }
 
       if(config.build.test.suites.nodeunit){
@@ -165,6 +213,24 @@ module.exports = function(grunt) {
       grunt.loadNpmTasks('grunt-reload');
       defaultTasks.push('reload');
 
+      watchTasks = watchTasks.concat(['jshint','mustache', 'uglify','dox','recess', 'reload']);
+      if(testTasks.length !== 0 && config.build.options.testsOnWatch){
+        watchTasks = watchTasks.concat(testTasks);
+      }
+
+      // Collect jsfiles into array, prepending rel_path
+      //if(typeof(config.build.jsfiles) === Array){
+      if(config.build.jsfiles){
+        var jslen = config.build.jsfiles.length;
+        for(var i=0; i < jslen; i++){
+          config.build.jsfiles[i] = config.project.environment.rel_path + config.build.jsfiles[i];
+        }
+      }
+      // console.log('--------------------------------------------------------');
+      // console.log(config.build.jsfiles);
+      // console.log('--------------------------------------------------------');
+      // //exit();
+
       patsy.gruntConfig = {
         // Read patsys configuration file into pkg
         pkg: grunt.file.readJSON('package.json'),
@@ -182,11 +248,12 @@ module.exports = function(grunt) {
         watch: {
           scripts : {
             files : [
-              '<%= basepath %><%= app.build.js %>**/*.js',
+              '<%= basepath %><%= app.build.jslibs %>**/*.js',
+              '<%= basepath %><%= app.build.jsfiles %>**/*.js',
               '<%= basepath %><%= app.build.tmpl.src %>*.mustache',
               '!node_modules/**/*.js'
             ].concat(config.build.css.src),
-            tasks: ['jshint','mustache', 'uglify','dox','recess', 'reload'].concat(config.build.options.testsOnWatch ? testTasks : ''),
+            tasks: watchTasks,
             options : {
               debounceDelay: 2500
             }
@@ -202,7 +269,7 @@ module.exports = function(grunt) {
         uglify : {
           project : {
             files : {
-              '<%= basepath %><%= app.build.dist ? app.build.dist + app.project.details.name + ".core.js" : app.build.min.dest %>' : [ '<%= basepath %><%= app.build.js %>**/*.js','<%= basepath %><%= app.build.js %>*.js']
+              '<%= basepath %><%= app.build.dist ? app.build.dist + app.project.details.name + ".core.js" : app.build.min.dest %>' : '<%= basepath %><%= app.build.js %>**/*.js'
             }
           },
           options: config.build.min.options || {
@@ -216,15 +283,16 @@ module.exports = function(grunt) {
             passfail: true
           },
           src: config.build.lint.src || [
-            '<%= basepath %><%= app.build.js %>**/*.js',
-            '!<%= basepath %><%= app.build.js %>templates.js',
+            '<%= basepath %><%= app.build.jsfiles %>**/*.js',
+            '!<%= basepath %><%= app.build.jsfiles %>templates.js',
+            '!<%= basepath %><%= app.build.jslibs %>**/*.js',
             '!<%= basepath %><%= app.build.dist %>**/*.js',
             '!node_modules/**/*.js'
           ]
         },
         mustache:{
           files: {
-            dest : '<%= basepath %><%= app.build.js %>templates.js',
+            dest : '<%= basepath %><%= app.build.jsfiles %>templates.js',
             src : ['<%= basepath %><%= app.build.tmpl.src %>']
           },
           options: config.build.tmpl.options || {}
@@ -238,7 +306,7 @@ module.exports = function(grunt) {
         },
         dox: {
           files: {
-            src: ['<%= basepath %><%= app.build.js %>'],
+            src: ['<%= basepath %><%= app.build.js %>**/*.js'],
             dest: '<%= basepath %><%= app.build.docs.dest %>'
           },
           options: config.build.docs.options || {}
@@ -328,8 +396,15 @@ module.exports = function(grunt) {
   //console.log(grunt.config.get());
   defaultTasks.push('watch');
   grunt.registerTask('default', defaultTasks);
-  grunt.registerTask('test', testTasks);
-  grunt.registerTask('all', ['jshint','mustache', 'uglify','dox','recess'].concat(testTasks));
+
+  if(testTasks.length !== 0){
+    grunt.registerTask('test', testTasks);
+    grunt.registerTask('all', ['jshint','mustache', 'uglify','dox','recess'].concat(testTasks));
+  } else {
+    grunt.registerTask('all', ['jshint','mustache', 'uglify','dox','recess']);
+  }
+
+
 
 
 };
